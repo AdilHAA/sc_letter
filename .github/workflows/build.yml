@@ -1,0 +1,102 @@
+name: Build article
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  latex:
+    # The official template uses these fonts, available on Windows runners.
+    runs-on: windows-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out sources
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install Tectonic
+        uses: wtfjoke/setup-tectonic@v4
+        with:
+          tectonic-version: "0.17.0"
+
+      - name: Require Times New Roman and Courier New
+        run: |
+          mkdir -p .ci-fontcheck
+          cat > .ci-fontcheck/fontcheck.tex << 'EOF'
+          \documentclass{article}
+          \usepackage{fontspec}
+          \usepackage{polyglossia}
+          \setdefaultlanguage{russian}
+          \IfFontExistsTF{Times New Roman}{}{%
+            \PackageError{fontcheck}{Times New Roman is not installed}{}%
+          }
+          \IfFontExistsTF{Courier New}{}{%
+            \PackageError{fontcheck}{Courier New is not installed}{}%
+          }
+          \setmainfont{Times New Roman}[
+            Ligatures=TeX,
+            BoldFont={Times New Roman Bold},
+            ItalicFont={Times New Roman Italic},
+            BoldItalicFont={Times New Roman Bold Italic},
+          ]
+          \newfontfamily\cyrillicfont{Times New Roman}[
+            Ligatures=TeX,
+            BoldFont={Times New Roman Bold},
+            ItalicFont={Times New Roman Italic},
+            BoldItalicFont={Times New Roman Bold Italic},
+          ]
+          \newfontfamily\cyrillicfonttt{Courier New}
+          \begin{document}
+          Проверка \textbf{жирный} \textit{курсив} \texttt{абв}
+          \end{document}
+          EOF
+          tectonic -o .ci-fontcheck .ci-fontcheck/fontcheck.tex
+
+      - name: Build article PDF
+        run: |
+          mkdir -p build
+          tectonic --keep-logs -o build article.tex
+
+      - name: Upload article PDF
+        uses: actions/upload-artifact@v7
+        with:
+          path: build/article.pdf
+          archive: false
+          if-no-files-found: error
+
+      - name: Upload LaTeX sources
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: sc_letter-sources
+          path: |
+            article.tex
+            misisarticle.cls
+            LICENSE
+          if-no-files-found: error
+
+      - name: Upload main LaTeX file
+        uses: actions/upload-artifact@v7
+        with:
+          path: article.tex
+          archive: false
+          if-no-files-found: error
+
+      - name: Upload compilation log on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: latex-build-log
+          path: |
+            build/*.log
+            .ci-fontcheck/*.log
+          include-hidden-files: true
+          if-no-files-found: ignore
